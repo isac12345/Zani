@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="toggle_float"
+        android:enabled="true"
+        android:icon="@drawable/ic_notif"
+        android:shortcutShortLabel="@string/sc_float">
+        <intent
+            android:action="id.zani.rec.TOGGLE"
+            android:targetClass="id.zani.rec.MainActivity"
+            android:targetPackage="id.zani.rec" />
+    </shortcut>
+</shortcuts>
