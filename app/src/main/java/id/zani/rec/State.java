@@ -6,7 +6,7 @@ import java.util.Locale;
 
 /** Status rekaman bersama (semua di main thread). */
 final class State {
-    static final int IDLE = 0, COUNT = 1, REC = 2, PAUSE = 3;
+    static final int IDLE = 0, COUNT = 1, REC = 2, PAUSE = 3, SAVING = 4;
     static int mode = IDLE;
     static int count;
     static long base;     // elapsedRealtime saat mulai (dikurangi durasi jeda)

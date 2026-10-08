@@ -24,6 +24,14 @@ dan perbaiki error build apa pun TANPA mengubah arsitektur.
 4. Mendukung **120 fps**: opsi 24/30/60/90/120; nilai dibatasi ke kemampuan layar (refresh rate maks) dan encoder HP.
 5. Jangan ubah desain/tema (Material You ungu, banner/wallpaper/ikon di `res/drawable-nodpi`). Jangan hapus fitur.
 
+## Audio (tambahan v1.1)
+- Sumber audio: Mati / Mic / Internal / Mic+Internal (Prefs `mic` + `int_audio`). "Internal" = AudioPlaybackCapture (Android 10+), bisa dibatasi ke aplikasi
+  tertentu (Prefs `apps`, daftar package dipisah koma; kosong = semua aplikasi).
+- Mode Mic saja tetap lewat MediaRecorder. Mode Internal dan Mic+Internal: video direkam MediaRecorder tanpa audio ke berkas sementara,
+  audio ditangkap `AudioCapture` (thread terpisah, di-encode AAC), lalu digabung tanpa re-encode saat stop (`RecorderService.doMux`).
+  Jangan ubah jalur video. Status `State.SAVING` dipakai selama penggabungan.
+- Setiap error fatal dicatat ke `crash.txt` (`ZaniApp`) dan bisa dilihat di Setelan > Laporan error terakhir.
+
 ## Cara build (pilih yang tersedia)
 **A. Lokal (JDK 17 + Android SDK platform 34 + build-tools 34 + Gradle 8.5):**
 ```
@@ -51,4 +59,6 @@ otomatis build dan mengunggah artifact `Zani-apk`. Baca log kalau gagal, perbaik
 - [ ] Buka game -> ketuk tombol Zani -> rekam -> dialog izin sistem -> hitung mundur 3-2-1 -> timer jalan di tombol.
 - [ ] Jeda/lanjut, screenshot saat merekam, stop -> muncul di tab Rekaman, bisa diputar/dibagikan/dihapus.
 - [ ] Setel 1080p/Layar + 120 fps + bitrate tinggi -> main game 5 menit, bandingkan fps game dengan dan tanpa rekam.
+- [ ] Geser tombol melayang ke kiri/kanan/atas/bawah berkali-kali: tidak crash, tombol tetap ada dan nempel tepi.
+- [ ] Setelan > Sumber audio = Internal (pilih aplikasi game) -> rekam sambil game bersuara -> hasil punya suara game.
 - [ ] Notifikasi punya aksi Jeda / Stop / Screenshot. Tile Pengaturan Cepat menyalakan/mematikan tombol melayang.

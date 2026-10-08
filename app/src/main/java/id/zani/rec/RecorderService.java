@@ -17,6 +17,9 @@ import android.hardware.display.DisplayManager;
 import android.hardware.display.VirtualDisplay;
 import android.media.Image;
 import android.media.ImageReader;
+import android.media.MediaCodec;
+import android.media.MediaExtractor;
+import android.media.MediaMuxer;
 import android.media.MediaRecorder;
 import android.media.MediaScannerConnection;
 import android.media.projection.MediaProjection;
@@ -37,6 +40,7 @@ import android.view.Surface;
 import android.widget.Toast;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -70,6 +74,10 @@ public class RecorderService extends Service {
     private boolean micUse, shotOnly, shotBusy, closed;
     private ImageReader ir;
     private HandlerThread ht;
+    private AudioCapture ac;
+    private File tmpV, tmpA;
+    private boolean muxMode;
+    private long vStartNs;
     private final Runnable shotTimeout = () -> {
         restoreSurface();
         toast("Screenshot gagal, coba lagi");
@@ -97,10 +105,11 @@ public class RecorderService extends Service {
         int rc = in.getIntExtra("rc", 0);
         Intent data = in.getParcelableExtra("data");
         shotOnly = "shot".equals(in.getStringExtra("mode"));
-        micUse = !shotOnly && Prefs.b(this, Prefs.MIC, true)
-                && checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
+        boolean hasRec = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
+        micUse = !shotOnly && Prefs.b(this, Prefs.MIC, true) && hasRec;
+        boolean audioAny = !shotOnly && hasRec && (Prefs.b(this, Prefs.MIC, true) || Prefs.b(this, Prefs.INT, false));
         try {
-            startFg(micUse);
+            startFg(audioAny);
         } catch (Exception e) {
             fail("Tidak bisa memulai layanan rekam");
             return;
@@ -144,6 +153,27 @@ public class RecorderService extends Service {
 
     private void startRec() {
         cfg = Caps.resolve(this);
+        muxMode = false;
+        ac = null;
+        if (Prefs.b(this, Prefs.INT, false)) {
+            boolean hasRec = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
+            if (Build.VERSION.SDK_INT < 29 || !hasRec) {
+                toast("Audio internal butuh Android 10+ dan izin mikrofon");
+            } else {
+                try {
+                    tmpA = new File(getCacheDir(), "zani_a.m4a");
+                    tmpV = new File(getCacheDir(), "zani_v.mp4");
+                    String ap = Prefs.s(this, Prefs.APPS, "");
+                    ac = AudioCapture.create(this, proj, micUse, ap.isEmpty() ? new String[0] : ap.split(","), tmpA);
+                    muxMode = true;
+                    micUse = false;
+                } catch (Throwable t) {
+                    ac = null;
+                    muxMode = false;
+                    toast("Audio internal tidak bisa dipakai, lanjut tanpa");
+                }
+            }
+        }
         boolean ok = false;
         String err = "";
         for (int tries = 0; tries < 5 && cfg != null && !ok; tries++) {
@@ -156,6 +186,7 @@ public class RecorderService extends Service {
             }
         }
         if (!ok || cfg == null) { fail("Gagal memulai rekaman: " + err); return; }
+        if (ac != null) ac.start();
         State.base = SystemClock.elapsedRealtime();
         State.mode = State.REC;
         State.fire();
@@ -164,13 +195,13 @@ public class RecorderService extends Service {
     }
 
     private boolean tryStart(Caps.Cfg c) throws Exception {
-        openOutput();
+        if (!muxMode) openOutput();
         MediaRecorder r = Build.VERSION.SDK_INT >= 31 ? new MediaRecorder(this) : new MediaRecorder();
         rec = r;
         if (micUse) r.setAudioSource(MediaRecorder.AudioSource.MIC);
         r.setVideoSource(MediaRecorder.VideoSource.SURFACE);
         r.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
-        r.setOutputFile(outPfd.getFileDescriptor());
+        if (muxMode) r.setOutputFile(tmpV.getPath()); else r.setOutputFile(outPfd.getFileDescriptor());
         r.setVideoEncoder(c.hevc ? MediaRecorder.VideoEncoder.HEVC : MediaRecorder.VideoEncoder.H264);
         r.setVideoSize(c.w, c.h);
         r.setVideoFrameRate(c.fps);
@@ -198,6 +229,7 @@ public class RecorderService extends Service {
             vd.resize(c.w, c.h, dpi);
             vd.setSurface(recSurface);
         }
+        vStartNs = System.nanoTime();
         r.start();
         return true;
     }
@@ -207,10 +239,12 @@ public class RecorderService extends Service {
         try {
             if (State.mode == State.REC) {
                 rec.pause();
+                if (ac != null) ac.setPaused(true);
                 State.pauseAt = SystemClock.elapsedRealtime();
                 State.mode = State.PAUSE;
             } else if (State.mode == State.PAUSE) {
                 rec.resume();
+                if (ac != null) ac.setPaused(false);
                 State.base += SystemClock.elapsedRealtime() - State.pauseAt;
                 State.mode = State.REC;
             } else {
@@ -225,9 +259,40 @@ public class RecorderService extends Service {
     }
 
     private void stopRec() {
+        if (State.mode == State.SAVING) return;
         if (State.mode == State.IDLE || State.mode == State.COUNT || rec == null) { cleanup(); return; }
         boolean valid = true;
         try { rec.stop(); } catch (Exception e) { valid = false; }
+        if (muxMode && valid && ac != null) {
+            releaseRecorder(false);
+            if (vd != null) { try { vd.release(); } catch (Exception ignore) { } vd = null; }
+            State.mode = State.SAVING;
+            State.fire();
+            refreshNotif();
+            final AudioCapture a = ac;
+            ac = null;
+            final long vs = vStartNs;
+            new Thread(() -> {
+                boolean ok = false, noAudio = false;
+                try {
+                    a.finish();
+                    h.post(this::releaseCapture);
+                    ok = doMux(a.offsetUs(vs));
+                } catch (Throwable ignore) { }
+                if (!ok) {
+                    try {
+                        closeOutput(false);
+                        openOutput();
+                        copyRaw();
+                        ok = true;
+                        noAudio = true;
+                    } catch (Throwable ignore) { }
+                }
+                final boolean fok = ok, fna = noAudio;
+                h.post(() -> afterMux(fok, fna));
+            }, "zani-mux").start();
+            return;
+        }
         releaseRecorder(valid);
         State.mode = State.IDLE;
         State.fire();
@@ -255,6 +320,19 @@ public class RecorderService extends Service {
         closed = true;
         h.removeCallbacksAndMessages(null);
         if (rec != null) releaseRecorder(false);
+        if (ac != null) { ac.abort(); ac = null; }
+        releaseCapture();
+        if (tmpV != null) { //noinspection ResultOfMethodCallIgnored
+            tmpV.delete(); }
+        if (tmpA != null) { //noinspection ResultOfMethodCallIgnored
+            tmpA.delete(); }
+        State.mode = State.IDLE;
+        State.fire();
+        stopForeground(true);
+        stopSelf();
+    }
+
+    private void releaseCapture() {
         if (vd != null) { try { vd.release(); } catch (Exception ignore) { } vd = null; }
         if (ir != null) { try { ir.close(); } catch (Exception ignore) { } ir = null; }
         if (ht != null) { ht.quitSafely(); ht = null; }
@@ -263,10 +341,89 @@ public class RecorderService extends Service {
             try { proj.stop(); } catch (Exception ignore) { }
             proj = null;
         }
+    }
+
+    // ---------------------------------------------------------------- gabung video + audio internal
+    private static int trackOf(MediaExtractor e, String prefix) {
+        for (int i = 0; i < e.getTrackCount(); i++) {
+            String m = e.getTrackFormat(i).getString(android.media.MediaFormat.KEY_MIME);
+            if (m != null && m.startsWith(prefix)) return i;
+        }
+        return -1;
+    }
+
+    /** Menggabung video (tmpV) dan audio (tmpA) tanpa re-encode. Jalan di thread terpisah. */
+    private boolean doMux(long offUs) {
+        MediaExtractor ve = null, ae = null;
+        MediaMuxer mx = null;
+        try {
+            closeOutput(false);
+            openOutput();
+            ve = new MediaExtractor();
+            ve.setDataSource(tmpV.getPath());
+            if (tmpA != null && tmpA.length() > 1024) {
+                try { ae = new MediaExtractor(); ae.setDataSource(tmpA.getPath()); } catch (Exception e) { ae = null; }
+            }
+            int vt = trackOf(ve, "video/");
+            int at = ae == null ? -1 : trackOf(ae, "audio/");
+            if (vt < 0) return false;
+            mx = new MediaMuxer(outPfd.getFileDescriptor(), MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
+            int vi = mx.addTrack(ve.getTrackFormat(vt));
+            int ai = at >= 0 ? mx.addTrack(ae.getTrackFormat(at)) : -1;
+            mx.start();
+            ve.selectTrack(vt);
+            if (at >= 0) ae.selectTrack(at);
+            ByteBuffer buf = ByteBuffer.allocate(4 << 20);
+            MediaCodec.BufferInfo bi = new MediaCodec.BufferInfo();
+            while (true) {
+                long tv = ve.getSampleTime();
+                long ta = at >= 0 ? ae.getSampleTime() : -1;
+                if (ta >= 0) ta += offUs;
+                if (tv < 0 && ta < 0) break;
+                boolean useV = tv >= 0 && (ta < 0 || tv <= ta);
+                MediaExtractor e2 = useV ? ve : ae;
+                buf.clear();
+                int n = e2.readSampleData(buf, 0);
+                if (n < 0) break;
+                bi.set(0, n, useV ? tv : ta,
+                        (e2.getSampleFlags() & MediaExtractor.SAMPLE_FLAG_SYNC) != 0 ? MediaCodec.BUFFER_FLAG_KEY_FRAME : 0);
+                mx.writeSampleData(useV ? vi : ai, buf, bi);
+                e2.advance();
+            }
+            mx.stop();
+            return true;
+        } catch (Throwable t) {
+            return false;
+        } finally {
+            if (mx != null) { try { mx.release(); } catch (Throwable ignore) { } }
+            if (ve != null) { try { ve.release(); } catch (Throwable ignore) { } }
+            if (ae != null) { try { ae.release(); } catch (Throwable ignore) { } }
+        }
+    }
+
+    /** Cadangan: kalau penggabungan gagal, simpan video apa adanya (tanpa audio internal). */
+    private void copyRaw() throws IOException {
+        try (FileInputStream in = new FileInputStream(tmpV);
+             ParcelFileDescriptor.AutoCloseOutputStream os = new ParcelFileDescriptor.AutoCloseOutputStream(outPfd)) {
+            byte[] b = new byte[64 * 1024];
+            int n;
+            while ((n = in.read(b)) > 0) os.write(b, 0, n);
+            os.flush();
+        }
+    }
+
+    private void afterMux(boolean ok, boolean noAudio) {
+        releaseCapture();
+        closeOutput(ok);
         State.mode = State.IDLE;
         State.fire();
-        stopForeground(true);
-        stopSelf();
+        if (ok) {
+            toast(noAudio ? "Audio internal gagal digabung, video tersimpan tanpa suara" : "Tersimpan di Movies/Zani");
+            doneNotif();
+        } else {
+            toast("Gagal menyimpan rekaman");
+        }
+        cleanup();
     }
 
     private void fail(String m) {

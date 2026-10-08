@@ -47,6 +47,7 @@ public class FloatingService extends Service implements State.L {
     private boolean open, wasOpen, drag;
     private int bs, side, ox, sw, sh, sx, sy;
     private float dx, dy;
+    private ValueAnimator anim;
 
     private final Runnable tick = new Runnable() {
         @Override public void run() {
@@ -112,6 +113,7 @@ public class FloatingService extends Service implements State.L {
     @Override
     public void onDestroy() {
         running = false;
+        if (anim != null) anim.cancel();
         h.removeCallbacksAndMessages(null);
         State.rm(this);
         if (root != null && wm != null) { try { wm.removeView(root); } catch (Exception ignore) { } }
@@ -121,6 +123,7 @@ public class FloatingService extends Service implements State.L {
 
     // ---------------------------------------------------------------- tampilan
     private void build() {
+        if (anim != null) anim.cancel();
         if (root != null) { try { wm.removeView(root); } catch (Exception ignore) { } }
         Ui.init(this);
         DisplayMetrics dm = getResources().getDisplayMetrics();
@@ -249,8 +252,13 @@ public class FloatingService extends Service implements State.L {
     private static int clamp(int v, int lo, int hi) { return Math.max(lo, Math.min(v, Math.max(lo, hi))); }
 
     private final View.OnTouchListener touch = (v, e) -> {
+        try { return handleTouch(e); } catch (RuntimeException ex) { return true; }
+    };
+
+    private boolean handleTouch(MotionEvent e) {
         switch (e.getActionMasked()) {
             case MotionEvent.ACTION_DOWN: {
+                if (anim != null) anim.cancel();
                 wasOpen = open;
                 if (open) closeMenu();
                 drag = false;
@@ -271,36 +279,49 @@ public class FloatingService extends Service implements State.L {
                 }
                 return true;
             }
-            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_UP: {
+                if (drag) finishDrag();
+                else if (!wasOpen) openMenu();
+                return true;
+            }
             case MotionEvent.ACTION_CANCEL: {
                 if (drag) finishDrag();
-                else if (!wasOpen && e.getActionMasked() == MotionEvent.ACTION_UP) openMenu();
                 return true;
             }
             default:
                 return false;
         }
-    };
+    }
 
+    /** Penyusunan ulang view dan animasi nempel dijalankan SETELAH event sentuh selesai (menghindari crash di tengah dispatch). */
     private void finishDrag() {
-        side = lp.x + bs / 2 < sw / 2 ? 0 : 1;
-        order();
+        drag = false;
+        final int ns = lp.x + bs / 2 < sw / 2 ? 0 : 1;
+        final boolean flip = ns != side;
+        side = ns;
         Prefs.put(this, Prefs.POSX, side);
         Prefs.put(this, Prefs.POSY, lp.y);
-        if (Prefs.b(this, Prefs.SNAP, true)) {
-            int tx = side == 0 ? 0 : sw - bs;
-            if (tx != lp.x) {
-                ValueAnimator a = ValueAnimator.ofInt(lp.x, tx);
-                a.setDuration(150);
-                a.addUpdateListener(an -> { lp.x = (Integer) an.getAnimatedValue(); upd(); });
-                a.start();
-            }
-        }
+        final boolean snap = Prefs.b(this, Prefs.SNAP, true);
+        h.post(() -> {
+            if (root == null) return;
+            if (flip) order();
+            int tx = snap ? (side == 0 ? 0 : sw - bs) : lp.x;
+            if (tx == lp.x) { upd(); return; }
+            anim = ValueAnimator.ofInt(lp.x, tx);
+            anim.setDuration(150);
+            anim.addUpdateListener(an -> {
+                if (root == null) return;
+                lp.x = (Integer) an.getAnimatedValue();
+                upd();
+            });
+            anim.start();
+        });
     }
 
     // ---------------------------------------------------------------- aksi tombol
     private void act(String k) {
         int m = State.mode;
+        if (m == State.SAVING) { toast("Sedang menyimpan rekaman"); return; }
         switch (k) {
             case "rec":
                 if (m == State.IDLE) { closeMenu(); startCapture("rec"); }
@@ -367,8 +388,9 @@ public class FloatingService extends Service implements State.L {
         if (m == State.COUNT) { cdTv.setText(String.valueOf(State.count)); cdTv.setVisibility(View.VISIBLE); }
         else cdTv.setVisibility(View.GONE);
         if (bRec != null) {
-            bRec.setImageResource(m == State.IDLE ? R.drawable.ic_rec : R.drawable.ic_stop);
-            bRec.setBackground(Ui.circle(m == State.IDLE ? 0x24FFFFFF : Ui.REC));
+            boolean idle = m == State.IDLE || m == State.SAVING;
+            bRec.setImageResource(idle ? R.drawable.ic_rec : R.drawable.ic_stop);
+            bRec.setBackground(Ui.circle(idle ? 0x24FFFFFF : Ui.REC));
         }
         if (bPs != null) bPs.setImageResource(m == State.PAUSE ? R.drawable.ic_play : R.drawable.ic_pause);
         if (m != State.IDLE) closeIfOpen();

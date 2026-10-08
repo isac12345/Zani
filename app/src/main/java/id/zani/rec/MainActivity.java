@@ -3,10 +3,13 @@ package id.zani.rec;
 import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.ContentUris;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
 import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.drawable.GradientDrawable;
@@ -34,7 +37,13 @@ import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.io.File;
+import java.io.FileInputStream;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -118,6 +127,7 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         fill(0);
+        fill(3);
         if (cur == 2) loadList();
     }
 
@@ -560,6 +570,78 @@ public class MainActivity extends Activity {
         });
     }
 
+    // ================================================================= pilih aplikasi sumber audio & log error
+    private void pickApps() {
+        final PackageManager pm = getPackageManager();
+        ex.execute(() -> {
+            final ArrayList<String[]> apps = new ArrayList<>();
+            try {
+                Intent mi = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
+                List<ResolveInfo> l = pm.queryIntentActivities(mi, 0);
+                Set<String> seen = new HashSet<>();
+                for (ResolveInfo ri : l) {
+                    String pkg = ri.activityInfo.packageName;
+                    if (pkg.equals(getPackageName()) || !seen.add(pkg)) continue;
+                    apps.add(new String[]{String.valueOf(ri.loadLabel(pm)), pkg});
+                }
+                Collections.sort(apps, (x, y) -> x[0].compareToIgnoreCase(y[0]));
+            } catch (Exception ignore) { }
+            h.post(() -> showPicker(apps));
+        });
+    }
+
+    private void showPicker(final ArrayList<String[]> apps) {
+        if (isDestroyed()) return;
+        if (apps.isEmpty()) { toast("Daftar aplikasi tidak tersedia"); return; }
+        Set<String> sel = new HashSet<>();
+        for (String s : Prefs.s(this, Prefs.APPS, "").split(",")) if (!s.isEmpty()) sel.add(s);
+        String[] labels = new String[apps.size()];
+        final boolean[] chk = new boolean[apps.size()];
+        for (int i = 0; i < labels.length; i++) {
+            labels[i] = apps.get(i)[0];
+            chk[i] = sel.contains(apps.get(i)[1]);
+        }
+        new AlertDialog.Builder(this).setTitle("Audio dari aplikasi")
+                .setMultiChoiceItems(labels, chk, (dg, which, on) -> chk[which] = on)
+                .setPositiveButton("Simpan", (dg, w) -> {
+                    StringBuilder sb = new StringBuilder();
+                    for (int i = 0; i < chk.length; i++) {
+                        if (!chk[i]) continue;
+                        if (sb.length() > 0) sb.append(',');
+                        sb.append(apps.get(i)[1]);
+                    }
+                    Prefs.putS(this, Prefs.APPS, sb.toString());
+                    fill(3);
+                })
+                .setNeutralButton("Semua aplikasi", (dg, w) -> { Prefs.putS(this, Prefs.APPS, ""); fill(3); })
+                .setNegativeButton("Batal", null)
+                .show();
+    }
+
+    private void showCrash() {
+        final File f = new File(getFilesDir(), "crash.txt");
+        String t = "Belum ada error tercatat.";
+        if (f.exists()) {
+            try (FileInputStream in = new FileInputStream(f)) {
+                byte[] b = new byte[(int) Math.min(f.length(), 6000)];
+                int n = in.read(b);
+                t = new String(b, 0, Math.max(0, n));
+            } catch (Exception e) {
+                t = "Gagal membaca log.";
+            }
+        }
+        final String tx = t;
+        new AlertDialog.Builder(this).setTitle("Laporan error terakhir").setMessage(tx)
+                .setPositiveButton("Salin", (dg, w) -> {
+                    ((ClipboardManager) getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("zani", tx));
+                    toast("Tersalin");
+                })
+                .setNeutralButton("Hapus", (dg, w) -> { //noinspection ResultOfMethodCallIgnored
+                    f.delete(); })
+                .setNegativeButton("Tutup", null)
+                .show();
+    }
+
     // ================================================================= halaman 3: setelan
     private static int idx(int[] a, int v) {
         for (int i = 0; i < a.length; i++) if (a[i] == v) return i;
@@ -609,8 +691,23 @@ public class MainActivity extends Activity {
         LinearLayout k3 = Ui.card(c);
         Ui.add(c, k3, Ui.row(c, "Batas aman otomatis", "Sesuaikan fps, resolusi, bitrate ke kemampuan encoder dan layar HP",
                 Ui.sw(c, Prefs.b(c, Prefs.SAFE, true), (v, on) -> Prefs.put(c, Prefs.SAFE, on))));
-        Ui.add(c, k3, Ui.row(c, "Rekam suara mikrofon", null,
-                Ui.sw(c, Prefs.b(c, Prefs.MIC, true), (v, on) -> { Prefs.put(c, Prefs.MIC, on); fill(0); })));
+        int src = (Prefs.b(c, Prefs.MIC, true) ? 1 : 0) | (Prefs.b(c, Prefs.INT, false) ? 2 : 0);
+        Ui.add(c, k3, Ui.row(c, "Sumber audio",
+                Build.VERSION.SDK_INT < 29 ? "Audio internal butuh Android 10+" : "Internal = suara dari dalam HP (game/aplikasi)",
+                Ui.seg(c, new String[]{"Mati", "Mic", "Internal", "Mic+Internal"}, src, i -> {
+                    boolean wantInt = (i & 2) != 0;
+                    if (wantInt && Build.VERSION.SDK_INT < 29) { toast("Audio internal butuh Android 10+"); fill(3); return; }
+                    Prefs.put(c, Prefs.MIC, (i & 1) != 0);
+                    Prefs.put(c, Prefs.INT, wantInt);
+                    if (i != 0 && !hasMic()) askPerms();
+                    fill(0);
+                    fill(3);
+                })));
+        String ap = Prefs.s(c, Prefs.APPS, "");
+        int cnt = ap.isEmpty() ? 0 : ap.split(",").length;
+        TextView pick = Ui.chip(c, "Pilih", false);
+        pick.setOnClickListener(v -> pickApps());
+        Ui.add(c, k3, Ui.row(c, "Audio dari aplikasi", cnt == 0 ? "Semua aplikasi" : cnt + " aplikasi dipilih", pick));
         p.addView(k3, Ui.lp(c, M, W, 0, 0, 0, 14));
 
         LinearLayout k4 = Ui.card(c);
@@ -618,6 +715,9 @@ public class MainActivity extends Activity {
         Ui.add(c, k4, Ui.row(c, "Folder simpan", "Movies/Zani dan Pictures/Zani", null));
         Ui.add(c, k4, Ui.row(c, "Encoder", "Hardware (MediaRecorder), tanpa salinan frame di CPU", null));
         Ui.add(c, k4, Ui.row(c, "Zani 1.0", "Ringan, tanpa iklan, tanpa internet", null));
+        TextView lg = Ui.chip(c, "Lihat", false);
+        lg.setOnClickListener(v -> showCrash());
+        Ui.add(c, k4, Ui.row(c, "Laporan error terakhir", "Kirim isinya ke developer kalau ada bug", lg));
         p.addView(k4, Ui.lp(c, M, W, 0, 0, 0, 10));
     }
 }
