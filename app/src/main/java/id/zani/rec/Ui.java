@@ -101,6 +101,17 @@ final class Ui {
         l.setOrientation(LinearLayout.VERTICAL);
         l.addView(tv(c, t, 16, INK, false));
         if (sub != null) l.addView(tv(c, sub, 13, MUTE, false));
+        // kontrol lebar (segmen >= 4 pilihan) ditaruh di bawah judul supaya teks tidak terjepit
+        boolean stack = right instanceof LinearLayout && ((LinearLayout) right).getChildCount() >= 4;
+        if (stack) {
+            r.setOrientation(LinearLayout.VERTICAL);
+            r.setGravity(Gravity.NO_GRAVITY);
+            r.addView(l, new LinearLayout.LayoutParams(MATCH, WRAP));
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(WRAP, WRAP);
+            p.topMargin = dp(c, 10);
+            r.addView(right, p);
+            return r;
+        }
         r.addView(l, new LinearLayout.LayoutParams(0, WRAP, 1f));
         if (right != null) {
             LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(WRAP, WRAP);
