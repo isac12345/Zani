@@ -32,4 +32,9 @@ android {
         checkReleaseBuilds false
     }
 }
-// Sengaja TANPA dependency apa pun: hanya framework Android supaya APK kecil dan cepat.
+
+dependencies {
+    // Hanya untuk ujian (tidak masuk APK): JUnit4
+    testImplementation 'junit:junit:4.13.2'
+}
+// Sengaja TANPA dependency apa pun selain ujian: hanya framework Android supaya APK kecil dan cepat.
