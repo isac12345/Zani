@@ -22,7 +22,7 @@ final class Caps {
         }
     }
 
-    private static int even(int v) { return Math.max(2, v & ~1); }
+    static int even(int v) { return Math.max(2, v & ~1); }
 
     static Display display(Context c) {
         return ((DisplayManager) c.getSystemService(Context.DISPLAY_SERVICE)).getDisplay(Display.DEFAULT_DISPLAY);
@@ -48,7 +48,7 @@ final class Caps {
         return false;
     }
 
-    private static boolean software(String n) {
+    static boolean software(String n) {
         n = n.toLowerCase(java.util.Locale.US);
         return n.startsWith("omx.google.") || n.startsWith("c2.android.") || n.contains(".sw.");
     }

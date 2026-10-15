@@ -104,7 +104,7 @@ final class AudioCapture implements Runnable {
 
     long offsetUs(long videoStartNs) { return Math.max(0, (startNs - videoStartNs) / 1000); }
 
-    private static short clip(int v) { return (short) Math.max(-32768, Math.min(32767, v)); }
+    static short clip(int v) { return (short) Math.max(-32768, Math.min(32767, v)); }
 
     @Override
     public void run() {
