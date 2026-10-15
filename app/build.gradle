@@ -17,8 +17,17 @@ android {
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            // ditandatangani dengan debug key supaya APK release langsung bisa di-install
-            signingConfig signingConfigs.debug
+            // CI: kunci rilis dari brankas (secrets); lokal: debug key
+            signingConfig System.getenv("KEYSTORE_PASSWORD") != null ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+
+    signingConfigs {
+        release {
+            storeFile file("keystore.jks")
+            storePassword System.getenv("KEYSTORE_PASSWORD")
+            keyAlias System.getenv("KEY_ALIAS")
+            keyPassword System.getenv("KEY_PASSWORD")
         }
     }
 
