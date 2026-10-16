@@ -2,28 +2,28 @@
 
 <img src="docs/banner.png" width="600" alt="Zani">
 
-Perekam layar untuk Android. Tombolnya melayang di atas game.
+Screen recorder for Android. The button floats above your game.
 
-**[Unduh APK](../../releases/latest)**
+**[Download APK](../../releases/latest)**
 
-Android 8+ · 214 KB · tanpa iklan · tanpa internet
+Android 8+ · 214 KB · no ads · no internet
 
-<img src="docs/melayang.jpg" width="240" alt="Tombol melayang di atas game">
-<img src="docs/beranda.jpg" width="240" alt="Beranda">
-<img src="docs/setelan.jpg" width="240" alt="Setelan">
+<img src="docs/melayang.jpg" width="240" alt="Floating button above game">
+<img src="docs/beranda.jpg" width="240" alt="Home">
+<img src="docs/setelan.jpg" width="240" alt="Settings">
 
 </div>
 
-## Fitur
+## Features
 
 | | |
 |---|---|
-| **Rekam** | Mulai dan hentikan rekaman dari tombol melayang, tanpa keluar dari game. |
-| **Jeda** | Tahan rekaman sebentar, lanjut lagi di file yang sama. |
-| **Screenshot** | Ambil gambar layar kapan saja dari tombol yang sama. |
+| **Record** | Start and stop recording from the floating button, without leaving your game. |
+| **Pause** | Hold the recording for a moment, continue in the same file. |
+| **Screenshot** | Capture the screen anytime from the same button. |
 
-## Instalasi
+## Install
 
-1. Unduh APK terbaru di halaman [Releases](../../releases).
-2. Buka file APK dan izinkan instalasi dari sumber ini.
-3. Buka Zani, tombol melayang siap dipakai.
+1. Download the latest APK on the [Releases](../../releases) page.
+2. Open the APK file and allow installation from this source.
+3. Open Zani, the floating button is ready to use.
