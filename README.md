@@ -2,6 +2,10 @@
 
 Screen recorder ringan. Rekam dan stop lewat tombol melayang di atas game; tanpa iklan, tanpa internet, tanpa library tambahan.
 
+| Beranda | Melayang | Setelan |
+|---|---|---|
+| <img src="docs/screenshots/beranda.jpg" width="220"> | <img src="docs/screenshots/melayang.jpg" width="220"> | <img src="docs/screenshots/setelan.jpg" width="220"> |
+
 - Java + framework Android saja (minSdk 26, targetSdk 34)
 - Rekam: MediaProjection -> VirtualDisplay -> MediaRecorder (encoder hardware), 24/30/60/90/120 fps, H.264/HEVC, audio mic / audio internal (Android 10+, bisa pilih aplikasi) / keduanya
 - Tombol melayang: rekam/stop, jeda, screenshot, mic, sembunyikan; geser + nempel tepi; hitung mundur
