@@ -24,7 +24,7 @@ Rilis kedua. Tanggal: 18 Oktober 2026. Setiap baris di bawah bisa ditelusuri ke 
 - Belum ada uji UI atau instrumentation sama sekali; yang ada hanya tiga berkas uji unit.
 - Belum diuji di semua merek dan versi Android. Perangkat yang membatasi rekam layar, overlay, atau audio internal bisa gagal.
 - Belum diuji upgrade dari 1.0.0 ke 1.1.0 pada perangkat yang sama.
-- APK rilis dengan obfuscation R8 belum diuji manual di perangkat; ada risiko nama kelas atau action Intent terpeng  oleh obfuscation.
+- APK rilis dengan obfuscation R8 belum diuji manual di perangkat; ada risiko nama kelas atau action Intent terpengaruh oleh obfuscation.
 
 ## Cara verifikasi build ini
 
