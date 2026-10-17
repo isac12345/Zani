@@ -5,11 +5,25 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     env:
       ANDROID_HOME: /usr/local/lib/android/sdk
       ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
     steps:
       - uses: actions/checkout@v4
+      - name: Cek kunci rilis ada (hanya tag v)
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -eu
+          if [ -z "${KEYSTORE_PASSWORD:-}" ] || [ -z "${KEY_ALIAS:-}" ] || [ -z "${KEY_PASSWORD:-}" ]; then
+            echo "::error::Secret kunci rilis kosong pada run tag; batalkan, jangan rilis APK debug-signed"
+            exit 1
+          fi
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -32,6 +46,18 @@ jobs:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: gradle assembleRelease --no-daemon
+      - name: Rilis otomatis (hanya tag v)
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          mkdir -p dist
+          cp app/build/outputs/apk/release/*.apk "dist/Zani-${GITHUB_REF_NAME#v}.apk"
+          ( cd dist && sha256sum Zani-*.apk > SHA256SUMS.txt )
+          gh release create "$GITHUB_REF_NAME" \
+            "dist/Zani-${GITHUB_REF_NAME#v}.apk" dist/SHA256SUMS.txt \
+            --notes-file RELEASE_NOTES.md
       - uses: actions/upload-artifact@v4
         with:
           name: Zani-apk
