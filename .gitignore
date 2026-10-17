@@ -6,3 +6,4 @@ local.properties
 *.jks
 *.keystore
 keystore*
+BUILD_PROMPT.md
